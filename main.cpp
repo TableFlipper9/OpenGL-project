@@ -89,9 +89,29 @@ glm::mat4 cubeeLocalTransform;
 
 GLfloat angle;
 
+//animations
+bool spinWindmill = false;
+float windmillAngle = 0.0f;
+glm::vec3 windmillPivot = glm::vec3(-4.2f, 16.0f, 1.1f);
+
+
 
 // shaders
 gps::Shader myBasicShader;
+
+void AnimateWindmill() {
+    windmillModel = glm::translate(windmillModel, windmillPivot);
+
+    // rotate around local axis
+    windmillModel = glm::rotate(
+        windmillModel,
+        glm::radians(windmillAngle),
+        glm::vec3(1.0f, 0.0f, 0.0f) // axis of blades
+    );
+
+    // move back
+    windmillModel = glm::translate(windmillModel, -windmillPivot);
+}
 
 void CalculatePointLight() {
     // lamp (point light) parameters
@@ -182,6 +202,10 @@ void keyboardCallback(GLFWwindow* window, int key, int scancode, int action, int
         lampEnabled = !lampEnabled;
     }
 
+    if (key == GLFW_KEY_I && action == GLFW_PRESS) {
+        spinWindmill = !spinWindmill;
+    }
+
 }
 
 void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
@@ -269,6 +293,13 @@ void processMovement() {
 
         myBasicShader.useShaderProgram();
         glUniform3fv(lightDirLoc, 1, glm::value_ptr(rotatedLightDir));
+    }
+
+    if (spinWindmill) {
+        windmillAngle = 0.1f;
+        if (windmillAngle > 360.0f)
+            windmillAngle -= 360.0f;
+        AnimateWindmill();
     }
 
     glUniform3fv(viewPosLoc, 1, glm::value_ptr(myCamera.getPosition()));
