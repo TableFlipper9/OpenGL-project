@@ -13,19 +13,20 @@ uniform vec3 lampPos;      // point light
 uniform vec3 lampColor;
 uniform bool lampEnabled;
 
+uniform vec3 fogColor;     // fog
+uniform float fogDensity;
+uniform bool fogEnabled;
 
 uniform vec3 viewPos;
-
 uniform sampler2D diffuseTexture;
+
 
 void main()
 {
     vec3 norm = normalize(Normal);
     vec3 viewDir = normalize(viewPos - FragPos);
 
-    // =====================
-    // Directional light (SUN)
-    // =====================
+    // Directional Light
     vec3 sunDir = normalize(-lightDir);
 
     vec3 ambientSun = 0.2 * lightColor;
@@ -37,20 +38,17 @@ void main()
     float specSun = pow(max(dot(viewDir, reflectSun), 0.0), 32.0);
     vec3 specularSun = 0.3 * specSun * lightColor;
 
-    vec3 sunResult = ambientSun + diffuseSun + specularSun;
+    vec3 sunResult = ambientSun + (diffuseSun + specularSun);
 
-    // =====================
-    // Point light (LAMP)
-    // =====================
+    //  (Point Light
     vec3 lampDir = normalize(lampPos - FragPos);
-    float distance = length(lampPos - FragPos);
+    float distLamp = length(lampPos - FragPos);
 
-    // attenuation
     float constant = 1.0;
     float linear = 0.09;
     float quadratic = 0.032;
     float attenuation = 1.0 /
-        (constant + linear * distance + quadratic * distance * distance);
+        (constant + linear * distLamp + quadratic * distLamp * distLamp);
 
     vec3 ambientLamp = 0.1 * lampColor;
 
@@ -66,12 +64,22 @@ void main()
         lampResult = (ambientLamp + diffuseLamp + specularLamp) * attenuation;
     }
 
-
-    // =====================
-    // Final color
-    // =====================
+    // TEXTURE
     vec3 lighting = sunResult + lampResult;
     vec3 texColor = texture(diffuseTexture, TexCoords).rgb;
 
-    FragColor = vec4(lighting * texColor, 1.0);
+    vec3 shadedColor = lighting * texColor;
+
+    // FOG
+    float distanceFog = length(viewPos - FragPos);
+    float fogFactor = exp(-pow(distanceFog * fogDensity, 2.0));
+    fogFactor = clamp(fogFactor, 0.0, 1.0);
+
+    vec3 finalColor = shadedColor;
+
+    if (fogEnabled) {
+        finalColor = mix(fogColor, shadedColor, fogFactor);
+    }
+
+    FragColor = vec4(finalColor, 1.0);
 }

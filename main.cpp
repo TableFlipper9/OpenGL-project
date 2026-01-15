@@ -17,6 +17,7 @@
 #include "Shader.hpp"
 #include "Camera.hpp"
 #include "Model3D.hpp"
+#include "SkyBox.hpp"
 
 #include <iostream>
 
@@ -24,6 +25,7 @@
 GLfloat sunAngle = 0.0f;
 bool animateSun = false;
 GLint viewPosLoc;
+glm::vec3 rotatedLightDir;
 
 // point light (lamp)
 glm::vec3 lampPos;
@@ -94,6 +96,15 @@ bool spinWindmill = false;
 float windmillAngle = 0.0f;
 glm::vec3 windmillPivot = glm::vec3(-4.2f, 16.0f, 1.1f);
 
+//viewMode
+int renderMode = 0;
+
+//SkyBox
+SkyBox skybox;
+gps::Shader skyboxShader;
+
+// fog enable
+bool fogEnabled = true;
 
 
 // shaders
@@ -206,6 +217,28 @@ void keyboardCallback(GLFWwindow* window, int key, int scancode, int action, int
         spinWindmill = !spinWindmill;
     }
 
+    if (key == GLFW_KEY_U && action == GLFW_PRESS) {
+        fogEnabled = !fogEnabled;
+    }
+
+    // SOLID
+    if (key == GLFW_KEY_1 && action == GLFW_PRESS) {
+        renderMode = 0;
+    }
+
+    // WIREFRAME
+    if (key == GLFW_KEY_2 && action == GLFW_PRESS) {
+        renderMode = 1;
+    }
+
+    // POINT / POLYGONAL
+    if (key == GLFW_KEY_3 && action == GLFW_PRESS) {
+        renderMode = 2;
+    }
+
+    if (key == GLFW_KEY_4 && action == GLFW_PRESS) {
+        glShadeModel(GL_FLAT);
+    }
 }
 
 void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
@@ -278,7 +311,7 @@ void processMovement() {
     }
 
     if (animateSun) {
-        sunAngle += 0.2f;
+        sunAngle += 0.5f;
         if (sunAngle > 360.0f)
             sunAngle -= 360.0f;
 
@@ -288,11 +321,12 @@ void processMovement() {
             glm::vec3(1.0f, 0.0f, 0.0f)
         );
 
-        glm::vec3 rotatedLightDir =
-            glm::normalize(glm::vec3(rotation * glm::vec4(lightDir, 0.0f)));
+        lightDir = glm::normalize(
+            glm::vec3(rotation * glm::vec4(0.0f, 1.0f, 1.0f, 0.0f))
+        );
 
         myBasicShader.useShaderProgram();
-        glUniform3fv(lightDirLoc, 1, glm::value_ptr(rotatedLightDir));
+        glUniform3fv(lightDirLoc, 1, glm::value_ptr(lightDir));
     }
 
     if (spinWindmill) {
@@ -327,6 +361,8 @@ void initOpenGLState() {
 	glEnable(GL_CULL_FACE); // cull face
 	glCullFace(GL_BACK); // cull back face
 	glFrontFace(GL_CCW); // GL_CCW for counter clock-wise
+    glShadeModel(GL_SMOOTH);
+
 }
 
 void initModels() {
@@ -335,19 +371,35 @@ void initModels() {
     windMill.LoadModel("models/windmill/turbine.obj");
     lampCube.LoadModel("models/cube/cube.obj");
 
+    std::vector<std::string> faces = {
+    "models/SkyeBox_blink/right.png",
+    "models/SkyeBox_blink/left.png",
+    "models/SkyeBox_blink/top.png",
+    "models/SkyeBox_blink/bottom.png",
+    "models/SkyeBox_blink/front.png",
+    "models/SkyeBox_blink/back.png"
+    };
+
+    skybox.Load(faces);
+
 }
 
 void initShaders() {
 	myBasicShader.loadShader(
         "shaders/basic.vert",
         "shaders/basic.frag");
+    skyboxShader.loadShader(
+        "shaders/skybox.vert",
+        "shaders/skybox.frag"
+    );
+
 }
 
 void initUniforms() {
 	myBasicShader.useShaderProgram();
 
     model = glm::mat4(1.0f);
-    // create model matrix for teapot
+    // create model matrix for scene
     model = glm::translate(model, glm::vec3(0.0f, -0.2f, 0.0f));
     //model = glm::rotate(glm::mat4(1.0f), glm::radians(angle), glm::vec3(0.0f, 1.0f, 0.0f));
     //model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
@@ -424,7 +476,7 @@ void renderLampCube(gps::Shader shader) {
 }
 
 
-void renderTeapot(gps::Shader shader) {
+void renderObjects(gps::Shader shader) {
     // select active shader program
     shader.useShaderProgram();
 
@@ -434,19 +486,69 @@ void renderTeapot(gps::Shader shader) {
     //send teapot normal matrix data to shader
     glUniformMatrix3fv(normalMatrixLoc, 1, GL_FALSE, glm::value_ptr(normalMatrix));
 
-    // draw teapot
+    // draw Scene
     teapot.Draw(shader);
 }
 
 void renderScene() {
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	//render the scene
+    switch (renderMode) {
+    case 0:
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        break;
+
+    case 1:
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        break;
+
+    case 2:
+        glPolygonMode(GL_FRONT_AND_BACK, GL_POINT);
+        break;
+    }
+;
 
 	// render the teapot
-	renderTeapot(myBasicShader);
+	renderObjects(myBasicShader);
     renderBasicObjects(myBasicShader);
     renderLampCube(myBasicShader);
+
+
+    myBasicShader.useShaderProgram();
+
+    glUniform3f(
+        glGetUniformLocation(myBasicShader.shaderProgram, "fogColor"),
+        0.6f, 0.7f, 0.8f   // light bluish fog
+    );
+
+    glUniform1f(
+        glGetUniformLocation(myBasicShader.shaderProgram, "fogDensity"),
+        0.015f
+    );
+
+    glUniform1i(
+        glGetUniformLocation(myBasicShader.shaderProgram, "fogEnabled"),
+        fogEnabled
+    );
+
+    // draw skybox LAST
+    skyboxShader.useShaderProgram();
+    glUniform1i(
+        glGetUniformLocation(skyboxShader.shaderProgram, "skybox"),
+        0
+    );
+    glUniformMatrix4fv(
+        glGetUniformLocation(skyboxShader.shaderProgram, "view"),
+        1, GL_FALSE, glm::value_ptr(view)
+    );
+    glUniformMatrix4fv(
+        glGetUniformLocation(skyboxShader.shaderProgram, "projection"),
+        1, GL_FALSE, glm::value_ptr(projection)
+    );
+
+    skybox.Draw(skyboxShader);
+
 }
 
 void cleanup() {
@@ -468,6 +570,7 @@ int main(int argc, const char * argv[]) {
 	initShaders();
 	initUniforms();
     setWindowCallbacks();
+    skybox.init();
 
 	glCheckError();
 	// application loop
