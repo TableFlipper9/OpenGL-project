@@ -25,6 +25,7 @@ uniform sampler2D shadowMap;
 // optional animated effect (toggle with Y)
 uniform float time;
 uniform bool rainEnabled;
+uniform vec2 resolution;
 
 float hash12(vec2 p) {
     // cheap deterministic noise
@@ -42,6 +43,7 @@ float ShadowCalculation(vec4 fragPosLightSpace, vec3 n, vec3 lightDirection)
 
     // outside the shadow map
     if (projCoords.z > 1.0) return 0.0;
+    if (projCoords.x < 0.0 || projCoords.x > 1.0 || projCoords.y < 0.0 || projCoords.y > 1.0) return 0.0;
 
     float currentDepth = projCoords.z;
 
@@ -69,16 +71,20 @@ void main()
     // Directional Light
     vec3 sunDir = normalize(-lightDir);
 
-    vec3 ambientSun = 0.2 * lightColor;
+    // Fade sun contribution as it goes below the horizon, so the scene doesn't abruptly go black
+    float sunStrength = smoothstep(-0.05, 0.25, sunDir.y);
+
+    vec3 ambientSun = 0.25 * lightColor; // ambient floor
 
     float diffSun = max(dot(norm, sunDir), 0.0);
-    vec3 diffuseSun = diffSun * lightColor;
+    vec3 diffuseSun = diffSun * lightColor * sunStrength;
 
     vec3 reflectSun = reflect(-sunDir, norm);
     float specSun = pow(max(dot(viewDir, reflectSun), 0.0), 32.0);
-    vec3 specularSun = 0.3 * specSun * lightColor;
+    vec3 specularSun = 0.3 * specSun * lightColor * sunStrength;
 
     float shadow = ShadowCalculation(FragPosLightSpace, norm, sunDir);
+    shadow *= sunStrength;
     vec3 sunResult = ambientSun + (1.0 - shadow) * (diffuseSun + specularSun);
 
     // Point Light (lamp)
@@ -110,19 +116,33 @@ void main()
     vec3 texColor = texture(diffuseTexture, TexCoords).rgb;
     vec3 finalColor = lighting * texColor;
 
-    // Simple "rain streak" overlay in texture space (cheap but animated)
-    if (rainEnabled) {
-        vec2 uv = TexCoords;
-        uv.y += time * 2.5; // move drops downward
+    // Screen-space rain overlay (falls "through" the camera, not on object UVs)
+    if (rainEnabled && resolution.x > 1.0 && resolution.y > 1.0) {
+        vec2 uv = gl_FragCoord.xy / resolution;
+        uv.y = 1.0 - uv.y; // make it fall downward visually
 
-        float colId = floor(uv.x * 60.0);
-        float rnd = hash12(vec2(colId, floor(uv.y * 10.0)));
-        float streak = smoothstep(0.97, 1.0, rnd);
-        float line = 1.0 - smoothstep(0.0, 0.02, abs(fract(uv.x * 60.0) - 0.5));
-        float drops = streak * line;
+        // column-based pseudo-random streaks
+        float cols = 220.0;
+        float colId = floor(uv.x * cols);
+        float rnd = hash12(vec2(colId, 1.0));
 
-        finalColor = mix(finalColor, finalColor * 0.85, 0.35);
-        finalColor += vec3(drops) * 0.25;
+        // slight wind drift
+        float drift = (rnd - 0.5) * 0.10;
+        uv.x += drift * (uv.y + time * 0.15);
+
+        float speed = mix(1.6, 3.0, rnd);
+        float y = fract(uv.y * 2.2 + time * speed + rnd);
+
+        float x = fract(uv.x * cols);
+        float center = 0.5 + (rnd - 0.5) * 0.25;
+        float width = mix(0.015, 0.06, rnd);
+
+        float streak = 1.0 - smoothstep(width, width + 0.02, abs(x - center));
+        float head = smoothstep(0.0, 0.12, y) * (1.0 - smoothstep(0.12, 0.42, y));
+        float drops = streak * head;
+
+        vec3 rainTint = vec3(0.85, 0.9, 1.0);
+        finalColor = mix(finalColor, finalColor + rainTint * drops, 0.22);
     }
 
     // FOG

@@ -22,8 +22,6 @@
 #include <iostream>
 #include <cmath>
 
-const glm::vec3 SCENE_CENTER = glm::vec3(0.0f, 5.0f, 0.0f);
-
 // sun animation
 GLfloat sunAngle = 0.0f;
 bool animateSun = false;
@@ -32,6 +30,7 @@ glm::vec3 rotatedLightDir;
 
 // time-based effects
 GLint timeLoc;
+GLint resolutionLoc;
 bool rainEnabled = false;
 
 // point light (lamp)
@@ -241,9 +240,12 @@ void windowResizeCallback(GLFWwindow* window, int width, int height) {
 	projection = glm::perspective(
 		glm::radians(myCamera.getFov()),
 		(float)fbWidth / (float)fbHeight,
-		0.1f, 20.0f
+		0.1f, 200.0f
 	);
 	glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+	if (resolutionLoc != -1) {
+		glUniform2f(resolutionLoc, (float)fbWidth, (float)fbHeight);
+	}
 }
 
 void keyboardCallback(GLFWwindow* window, int key, int scancode, int action, int mode) {
@@ -378,7 +380,7 @@ void processMovement() {
     }
 
     if (animateSun) {
-        sunAngle += 0.1f;
+        sunAngle += 0.5f;
         if (sunAngle > 360.0f)
             sunAngle -= 360.0f;
 
@@ -397,7 +399,7 @@ void processMovement() {
     }
 
     if (spinWindmill) {
-        windmillAngle += 0.1f;
+        windmillAngle += 3.0f;
         if (windmillAngle > 360.0f)
             windmillAngle -= 360.0f;
         AnimateWindmill();
@@ -415,6 +417,11 @@ void processMovement() {
     // time + rain
     glUniform1f(timeLoc, (float)glfwGetTime());
     glUniform1i(glGetUniformLocation(myBasicShader.shaderProgram, "rainEnabled"), rainEnabled);
+	if (resolutionLoc != -1) {
+		glUniform2f(resolutionLoc,
+			(float)myWindow.getWindowDimensions().width,
+			(float)myWindow.getWindowDimensions().height);
+	}
 }
 
 void initOpenGLWindow() {
@@ -525,7 +532,7 @@ void initUniforms() {
 	// create projection matrix
 	projection = glm::perspective(glm::radians(45.0f),
                                (float)myWindow.getWindowDimensions().width / (float)myWindow.getWindowDimensions().height,
-                               0.1f, 20.0f);
+							   0.1f, 200.0f);
 	projectionLoc = glGetUniformLocation(myBasicShader.shaderProgram, "projection");
 	// send projection matrix to shader
 	glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));	
@@ -538,6 +545,10 @@ void initUniforms() {
 	timeLoc = glGetUniformLocation(myBasicShader.shaderProgram, "time");
 	glUniform1f(timeLoc, (float)glfwGetTime());
 	glUniform1i(glGetUniformLocation(myBasicShader.shaderProgram, "rainEnabled"), rainEnabled);
+	resolutionLoc = glGetUniformLocation(myBasicShader.shaderProgram, "resolution");
+	glUniform2f(resolutionLoc,
+		(float)myWindow.getWindowDimensions().width,
+		(float)myWindow.getWindowDimensions().height);
 
 	// light-space matrix for shadow mapping (updated each frame)
 	glUniformMatrix4fv(glGetUniformLocation(myBasicShader.shaderProgram, "lightSpaceMatrix"), 1, GL_FALSE, glm::value_ptr(lightSpaceMatrix));
@@ -605,9 +616,12 @@ void renderObjects(gps::Shader shader) {
 
 void renderScene() {
     // 1) Shadow pass: render depth from light POV
-    glm::mat4 lightProjection = glm::ortho(-20.0f, 20.0f, -20.0f, 20.0f, 1.0f, 50.0f);
-    glm::vec3 lightPos = SCENE_CENTER - lightDir * 15.0f;
-    glm::mat4 lightView = glm::lookAt(lightPos, SCENE_CENTER, glm::vec3(0.0f, 1.0f, 0.0f));
+    // NOTE: tuned for your MainScene.obj scale (village spans roughly +/-50 units)
+    // Keep the shadow frustum stable and independent from the camera.
+    glm::mat4 lightProjection = glm::ortho(-70.0f, 70.0f, -70.0f, 70.0f, 1.0f, 150.0f);
+    glm::vec3 sceneCenter(0.0f, 5.0f, 0.0f);
+    glm::vec3 lightPos = sceneCenter - lightDir * 80.0f;
+    glm::mat4 lightView = glm::lookAt(lightPos, sceneCenter, glm::vec3(0.0f, 1.0f, 0.0f));
     lightSpaceMatrix = lightProjection * lightView;
 
     glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
@@ -638,6 +652,11 @@ void renderScene() {
 
     myBasicShader.useShaderProgram();
     glUniformMatrix4fv(glGetUniformLocation(myBasicShader.shaderProgram, "lightSpaceMatrix"), 1, GL_FALSE, glm::value_ptr(lightSpaceMatrix));
+	if (resolutionLoc != -1) {
+		glUniform2f(resolutionLoc,
+			(float)myWindow.getWindowDimensions().width,
+			(float)myWindow.getWindowDimensions().height);
+	}
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, depthMap);
 
