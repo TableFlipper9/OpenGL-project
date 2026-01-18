@@ -42,8 +42,9 @@ GLint lampEnabledLoc;
 bool lampEnabled = true;
 
 // shadow mapping
-const unsigned int SHADOW_WIDTH = 2048;
-const unsigned int SHADOW_HEIGHT = 2048;
+// Higher resolution reduces blockiness/striping artifacts on the ground.
+const unsigned int SHADOW_WIDTH = 4096;
+const unsigned int SHADOW_HEIGHT = 4096;
 GLuint depthMapFBO = 0;
 GLuint depthMap = 0;
 gps::Shader shadowShader;
@@ -108,10 +109,11 @@ GLfloat angle;
 //animations
 bool spinWindmill = false;
 float windmillAngle = 0.0f;
-// Windmill blade pivot in *model local space* (hub center). Using local-space pivot
-// avoids "orbiting" artifacts when the windmill is transformed in the world.
-// Keep this at (0,0,0) unless your turbine.obj was authored with an offset origin.
-glm::vec3 windmillPivot = glm::vec3(0.0f, 0.0f, 0.0f);
+// Windmill blades pivot.
+// In this project the turbine's OBJ isn't perfectly centered at the hub, so a small
+// world-space pivot works best. This matches the previous "almost centered" behavior
+// and avoids the compounding transform issue.
+glm::vec3 windmillPivot = glm::vec3(-4.2f, 16.0f, 1.1f);
 
 // tavern sign swing (wind)
 bool swingBoard = false;
@@ -132,13 +134,20 @@ bool fogEnabled = true;
 gps::Shader myBasicShader;
 
 void AnimateWindmill() {
-    // IMPORTANT: apply the rotation in the windmill's *local* space, not world space.
-    // This prevents the blades from shifting position when the whole scene is moved/rotated.
-    // windmillModel already contains the static placement transform.
-    windmillModel = windmillModel *
-        glm::translate(glm::mat4(1.0f), windmillPivot) *
-        glm::rotate(glm::mat4(1.0f), glm::radians(windmillAngle), glm::vec3(1.0f, 0.0f, 0.0f)) *
-        glm::translate(glm::mat4(1.0f), -windmillPivot);
+    // Build the animated windmill transform from a clean base every frame.
+    // IMPORTANT: windmillPivot is in the turbine OBJ's local coordinates; because the
+    // base transform includes a small scale (0.025), this pivot is implicitly scaled too.
+    // This matches your original "almost centered" behavior while avoiding transform
+    // accumulation/drift.
+    glm::mat4 base = model * windmillLocalTransform;
+
+    windmillModel = glm::translate(base, windmillPivot);
+    windmillModel = glm::rotate(
+        windmillModel,
+        glm::radians(windmillAngle),
+        glm::vec3(1.0f, 0.0f, 0.0f) // axis of blades
+    );
+    windmillModel = glm::translate(windmillModel, -windmillPivot);
 }
 
 void AnimateBoardSwing(float tSeconds) {
@@ -488,7 +497,8 @@ void initShadowMap() {
 
 	glGenTextures(1, &depthMap);
 	glBindTexture(GL_TEXTURE_2D, depthMap);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT,
+	// Use a 32-bit float depth format for better precision in large outdoor scenes.
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F,
 		SHADOW_WIDTH, SHADOW_HEIGHT, 0,
 		GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -631,9 +641,14 @@ void renderScene() {
     lightSpaceMatrix = lightProjection * lightView;
 
     glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
-	// Some imported meshes have inconsistent winding; disabling face culling for the
-	// shadow pass avoids the "empty shadow map" case.
+	// Some imported meshes have inconsistent winding; keep culling disabled for the
+	// shadow pass to avoid the "empty shadow map" case.
 	glDisable(GL_CULL_FACE);
+
+	// Reduce shadow acne / banding on large flat surfaces by applying a polygon offset
+	// during the depth-only render.
+	glEnable(GL_POLYGON_OFFSET_FILL);
+	glPolygonOffset(2.0f, 4.0f);
     glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
     glClear(GL_DEPTH_BUFFER_BIT);
 
@@ -655,6 +670,7 @@ void renderScene() {
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	// Restore state for main pass
+	glDisable(GL_POLYGON_OFFSET_FILL);
 	glEnable(GL_CULL_FACE);
 
     // 2) Main pass

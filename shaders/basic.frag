@@ -49,7 +49,8 @@ float ShadowCalculation(vec4 fragPosLightSpace, vec3 n, vec3 lightDirection)
 
     // bias to reduce shadow acne
     // Bias to reduce shadow acne. lightDirection points FROM the fragment TOWARDS the light.
-    float bias = max(0.0020 * (1.0 - dot(n, lightDirection)), 0.0006);
+    // Slightly larger bias to suppress "stripy" acne on big flat surfaces (ground).
+    float bias = max(0.0035 * (1.0 - dot(n, lightDirection)), 0.0010);
 
     // simple PCF (3x3)
     float shadow = 0.0;
@@ -134,7 +135,10 @@ void main()
         uv.x += drift * (uv.y + time * 0.15);
 
         float speed = mix(1.6, 3.0, rnd);
-        float y = fract(uv.y * 2.2 - time * speed + rnd);
+        // To move streaks DOWN the screen as time increases, scroll the phase forward.
+        // With OpenGL's bottom-left origin, this makes the bright "head" region appear
+        // at progressively smaller uv.y.
+        float y = fract(uv.y * 2.2 + time * speed + rnd);
 
         float x = fract(uv.x * cols);
         float center = 0.5 + (rnd - 0.5) * 0.25;
