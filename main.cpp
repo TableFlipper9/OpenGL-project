@@ -108,7 +108,10 @@ GLfloat angle;
 //animations
 bool spinWindmill = false;
 float windmillAngle = 0.0f;
-glm::vec3 windmillPivot = glm::vec3(-4.2f, 16.0f, 1.1f);
+// Windmill blade pivot in *model local space* (hub center). Using local-space pivot
+// avoids "orbiting" artifacts when the windmill is transformed in the world.
+// Keep this at (0,0,0) unless your turbine.obj was authored with an offset origin.
+glm::vec3 windmillPivot = glm::vec3(0.0f, 0.0f, 0.0f);
 
 // tavern sign swing (wind)
 bool swingBoard = false;
@@ -129,37 +132,38 @@ bool fogEnabled = true;
 gps::Shader myBasicShader;
 
 void AnimateWindmill() {
-    windmillModel = glm::translate(windmillModel, windmillPivot);
-
-    // rotate around local axis
-    windmillModel = glm::rotate(
-        windmillModel,
-        glm::radians(windmillAngle),
-        glm::vec3(1.0f, 0.0f, 0.0f) // axis of blades
-    );
-
-    // move back
-    windmillModel = glm::translate(windmillModel, -windmillPivot);
+    // IMPORTANT: apply the rotation in the windmill's *local* space, not world space.
+    // This prevents the blades from shifting position when the whole scene is moved/rotated.
+    // windmillModel already contains the static placement transform.
+    windmillModel = windmillModel *
+        glm::translate(glm::mat4(1.0f), windmillPivot) *
+        glm::rotate(glm::mat4(1.0f), glm::radians(windmillAngle), glm::vec3(1.0f, 0.0f, 0.0f)) *
+        glm::translate(glm::mat4(1.0f), -windmillPivot);
 }
 
 void AnimateBoardSwing(float tSeconds) {
+    // Swing the sign around its hinge/pivot.
+    // The Sign.obj mesh is not centered at origin; its top hinge in model space is roughly:
+    // (2.96306, 6.159437, 7.313268). This was extracted from the mesh bounds.
+    // Rotating around this pivot produces a much more believable "hanging board" animation.
+
     // Base board transform (without swing)
     glm::mat4 base = model * boardLocalTransform;
 
     // Swing angle: simple sinusoidal motion
-    float swingDeg = sinf(tSeconds * 2.0f) * boardMaxSwingDeg;
+    float swingDeg = sinf(tSeconds * 1.2f) * boardMaxSwingDeg;
 
-    // Approximate pivot point near the top of the sign in *board local space*.
-    // If your sign swings around a different point, adjust this vector.
-    glm::vec3 pivotWorld = glm::vec3(base * glm::vec4(0.0f, 1.0f, 0.0f, 1.0f));
+    // Pivot in SIGN MODEL space (before boardLocalTransform)
+    const glm::vec3 pivotLocal(2.96306f, 6.159437f, 7.3132685f);
 
+    // Build: base * T(pivot) * R * T(-pivot)
     glm::mat4 swing(1.0f);
-    swing = glm::translate(swing, pivotWorld);
-    // swing around Z for a "hanging sign" look; change axis if needed
+    swing = glm::translate(swing, pivotLocal);
+    // Rotate around local Z by default (change axis if you prefer another swing direction)
     swing = glm::rotate(swing, glm::radians(swingDeg), glm::vec3(0.0f, 0.0f, 1.0f));
-    swing = glm::translate(swing, -pivotWorld);
+    swing = glm::translate(swing, -pivotLocal);
 
-    boardModel = swing * base;
+    boardModel = base * swing;
 }
 
 void CalculatePointLight() {
@@ -380,19 +384,16 @@ void processMovement() {
     }
 
     if (animateSun) {
-        sunAngle += 0.5f;
-        if (sunAngle > 360.0f)
-            sunAngle -= 360.0f;
+        // Animate from sunrise -> noon -> sunset with a stable horizon.
+        // We keep the sun above the horizon (lightDir.y >= 0), so the scene doesn't
+        // abruptly go dark and the shadow map stays well-behaved.
+        sunAngle += 0.35f;              // degrees per frame (tweak as you like)
+        if (sunAngle > 180.0f)          // one full day arc
+            sunAngle -= 180.0f;
 
-        glm::mat4 rotation = glm::rotate(
-            glm::mat4(1.0f),
-            glm::radians(sunAngle),
-            glm::vec3(1.0f, 0.0f, 0.0f)
-        );
-
-        lightDir = glm::normalize(
-            glm::vec3(rotation * glm::vec4(0.0f, 1.0f, 1.0f, 0.0f))
-        );
+        float theta = glm::radians(sunAngle);
+        // lightDir is the direction FROM the fragment TOWARDS the sun (used directly in shader)
+        lightDir = glm::normalize(glm::vec3(0.0f, sinf(theta), cosf(theta)));
 
         myBasicShader.useShaderProgram();
         glUniform3fv(lightDirLoc, 1, glm::value_ptr(lightDir));
@@ -508,7 +509,9 @@ void initUniforms() {
 	myBasicShader.useShaderProgram();
 	// texture units
 	glUniform1i(glGetUniformLocation(myBasicShader.shaderProgram, "diffuseTexture"), 0);
-	glUniform1i(glGetUniformLocation(myBasicShader.shaderProgram, "shadowMap"), 1);
+	// Reserve a high texture unit for the shadow map so model materials (which may bind
+	// multiple textures starting at unit 0) don't accidentally overwrite it.
+	glUniform1i(glGetUniformLocation(myBasicShader.shaderProgram, "shadowMap"), 10);
 
     model = glm::mat4(1.0f);
     // create model matrix for scene
@@ -558,8 +561,9 @@ void initUniforms() {
     lampEnabledLoc = glGetUniformLocation(myBasicShader.shaderProgram, "lampEnabled");
     glUniform1i(lampEnabledLoc, lampEnabled);
 
-	//set the light direction (direction towards the light)
-    lightDir = glm::normalize(glm::vec3(0.0f, 1.0f, 1.0f));
+	// set the sun direction (FROM the scene TOWARDS the sun)
+	// (shader uses thislghtDir directly, no negation)
+    lightDir = glm::normalize(glm::vec3(0.0f, 0.7f, 0.7f));
 	lightDirLoc = glGetUniformLocation(myBasicShader.shaderProgram, "lightDir");
 	// send light dir to shader
 	glUniform3fv(lightDirLoc, 1, glm::value_ptr(lightDir));
@@ -620,11 +624,16 @@ void renderScene() {
     // Keep the shadow frustum stable and independent from the camera.
     glm::mat4 lightProjection = glm::ortho(-70.0f, 70.0f, -70.0f, 70.0f, 1.0f, 150.0f);
     glm::vec3 sceneCenter(0.0f, 5.0f, 0.0f);
-    glm::vec3 lightPos = sceneCenter - lightDir * 80.0f;
+    // lightDir points FROM the scene TOWARDS the sun, so the light "camera" position
+    // should be placed in that direction.
+    glm::vec3 lightPos = sceneCenter + lightDir * 80.0f;
     glm::mat4 lightView = glm::lookAt(lightPos, sceneCenter, glm::vec3(0.0f, 1.0f, 0.0f));
     lightSpaceMatrix = lightProjection * lightView;
 
     glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
+	// Some imported meshes have inconsistent winding; disabling face culling for the
+	// shadow pass avoids the "empty shadow map" case.
+	glDisable(GL_CULL_FACE);
     glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
     glClear(GL_DEPTH_BUFFER_BIT);
 
@@ -645,6 +654,8 @@ void renderScene() {
     lampCube.Draw(shadowShader);
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	// Restore state for main pass
+	glEnable(GL_CULL_FACE);
 
     // 2) Main pass
     glViewport(0, 0, myWindow.getWindowDimensions().width, myWindow.getWindowDimensions().height);
@@ -657,7 +668,7 @@ void renderScene() {
 			(float)myWindow.getWindowDimensions().width,
 			(float)myWindow.getWindowDimensions().height);
 	}
-    glActiveTexture(GL_TEXTURE1);
+    glActiveTexture(GL_TEXTURE10);
     glBindTexture(GL_TEXTURE_2D, depthMap);
 
 	//render the scene

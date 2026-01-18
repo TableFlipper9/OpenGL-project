@@ -48,7 +48,8 @@ float ShadowCalculation(vec4 fragPosLightSpace, vec3 n, vec3 lightDirection)
     float currentDepth = projCoords.z;
 
     // bias to reduce shadow acne
-    float bias = max(0.0015 * (1.0 - dot(n, -lightDirection)), 0.0005);
+    // Bias to reduce shadow acne. lightDirection points FROM the fragment TOWARDS the light.
+    float bias = max(0.0020 * (1.0 - dot(n, lightDirection)), 0.0006);
 
     // simple PCF (3x3)
     float shadow = 0.0;
@@ -69,7 +70,8 @@ void main()
     vec3 viewDir = normalize(viewPos - FragPos);
 
     // Directional Light
-    vec3 sunDir = normalize(-lightDir);
+    // lightDir is the direction FROM the fragment TOWARDS the sun
+    vec3 sunDir = normalize(lightDir);
 
     // Fade sun contribution as it goes below the horizon, so the scene doesn't abruptly go black
     float sunStrength = smoothstep(-0.05, 0.25, sunDir.y);
@@ -118,8 +120,9 @@ void main()
 
     // Screen-space rain overlay (falls "through" the camera, not on object UVs)
     if (rainEnabled && resolution.x > 1.0 && resolution.y > 1.0) {
+        // Screen-space UV (origin at bottom-left in OpenGL). To make streaks fall DOWN,
+        // we scroll them toward smaller Y as time increases.
         vec2 uv = gl_FragCoord.xy / resolution;
-        uv.y = 1.0 - uv.y; // make it fall downward visually
 
         // column-based pseudo-random streaks
         float cols = 220.0;
@@ -131,7 +134,7 @@ void main()
         uv.x += drift * (uv.y + time * 0.15);
 
         float speed = mix(1.6, 3.0, rnd);
-        float y = fract(uv.y * 2.2 + time * speed + rnd);
+        float y = fract(uv.y * 2.2 - time * speed + rnd);
 
         float x = fract(uv.x * cols);
         float center = 0.5 + (rnd - 0.5) * 0.25;
