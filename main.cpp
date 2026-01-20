@@ -21,6 +21,7 @@
 
 #include <iostream>
 #include <cmath>
+//#include <new>
 
 // sun animation
 GLfloat sunAngle = 0.0f;
@@ -42,6 +43,7 @@ GLint lampEnabledLoc;
 bool lampEnabled = true;
 
 // shadow mapping
+// Higher resolution reduces blockiness/striping artifacts on the ground.
 const unsigned int SHADOW_WIDTH = 4096;
 const unsigned int SHADOW_HEIGHT = 4096;
 GLuint depthMapFBO = 0;
@@ -135,13 +137,12 @@ void AnimateWindmill() {
     windmillModel = glm::rotate(
         windmillModel,
         glm::radians(windmillAngle),
-        glm::vec3(1.0f, 0.0f, 0.0f)
+        glm::vec3(1.0f, 0.0f, 0.0f) // axis of blades
     );
     windmillModel = glm::translate(windmillModel, -windmillPivot);
 }
 
 void AnimateBoardSwing(float tSeconds) {
-
     glm::mat4 base = model * boardLocalTransform;
     float swingDeg = sinf(tSeconds * 1.2f) * boardMaxSwingDeg;
     const glm::vec3 pivotLocal(2.96306f, 6.159437f, 7.3132685f);
@@ -315,7 +316,7 @@ void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
         (float)myWindow.getWindowDimensions().width /
         (float)myWindow.getWindowDimensions().height,
         0.1f,
-        200.0f
+        100.0f
     );
 
     myBasicShader.useShaderProgram();
@@ -341,7 +342,7 @@ void processMovement() {
     view = myCamera.getViewMatrix();
     myBasicShader.useShaderProgram();
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-    // normals are kept in world space (NOT for view)
+    // normals are kept in world space
     normalMatrix = glm::mat3(glm::inverseTranspose(model));
 
     if (pressedKeys[GLFW_KEY_Q]) {
@@ -349,7 +350,6 @@ void processMovement() {
         model = glm::rotate(model, glm::radians(angle), glm::vec3(0, 1, 0));
         MultiplyByReference();
         CalculatePointLight();
-        // update normal matrix for scene
         normalMatrix = glm::mat3(glm::inverseTranspose(model));
     }
 
@@ -358,13 +358,13 @@ void processMovement() {
         model = glm::rotate(model, glm::radians(angle), glm::vec3(0, 1, 0));
         MultiplyByReference();
         CalculatePointLight();
-        // update normal matrix for scene
         normalMatrix = glm::mat3(glm::inverseTranspose(model));
     }
 
     if (animateSun) {
-        sunAngle += 0.35f; 
-        if (sunAngle > 180.0f) 
+        // Animate from sunrise 
+        sunAngle += 0.35f;
+        if (sunAngle > 180.0f)
             sunAngle -= 180.0f;
 
         float theta = glm::radians(sunAngle);
@@ -416,8 +416,8 @@ void initOpenGLState() {
 	glClearColor(0.7f, 0.7f, 0.7f, 1.0f);
 	glViewport(0, 0, myWindow.getWindowDimensions().width, myWindow.getWindowDimensions().height);
     glEnable(GL_FRAMEBUFFER_SRGB);
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LESS); // depth-testing interprets a smaller value as "closer"
+	glEnable(GL_DEPTH_TEST); // enable depth-testing
+	glDepthFunc(GL_LESS); 
 	glEnable(GL_CULL_FACE); 
 	glCullFace(GL_BACK);
 	glFrontFace(GL_CCW); // GL_CCW for counter clock-wise
@@ -463,11 +463,13 @@ void initShadowMap() {
 
 	glGenTextures(1, &depthMap);
 	glBindTexture(GL_TEXTURE_2D, depthMap);
+
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F,
 		SHADOW_WIDTH, SHADOW_HEIGHT, 0,
 		GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
 	float borderColor[] = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -581,10 +583,8 @@ void renderObjects(gps::Shader shader) {
     // select active shader program
     shader.useShaderProgram();
 
-    //send scene model matrix data to shader
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
-    //send scene normal matrix data to shader
     glUniformMatrix3fv(normalMatrixLoc, 1, GL_FALSE, glm::value_ptr(normalMatrix));
 
     // draw Scene
@@ -592,7 +592,7 @@ void renderObjects(gps::Shader shader) {
 }
 
 void renderScene() {
-    // Shadow pass: render depth from light POV
+    // Shadow pass
     glm::mat4 lightProjection = glm::ortho(-70.0f, 70.0f, -70.0f, 70.0f, 1.0f, 150.0f);
     glm::vec3 sceneCenter(0.0f, 5.0f, 0.0f);
     glm::vec3 lightPos = sceneCenter + lightDir * 80.0f;
@@ -657,7 +657,7 @@ void renderScene() {
         break;
     }
 ;
-	// render the objects
+    // render objects 
 	renderObjects(myBasicShader);
     renderBasicObjects(myBasicShader);
     renderLampCube(myBasicShader);
@@ -680,7 +680,7 @@ void renderScene() {
         fogEnabled
     );
 
-    // draw skybox
+    // draw skybox LAST
     skyboxShader.useShaderProgram();
     glUniform1i(
         glGetUniformLocation(skyboxShader.shaderProgram, "skybox"),
@@ -698,7 +698,6 @@ void renderScene() {
     skybox.Draw(skyboxShader);
 
 }
-
 
 void cleanup() {
     // IMPORTANT: delete GPU resources *before* destroying the OpenGL context.
@@ -730,7 +729,7 @@ void cleanup() {
         skyboxShader.shaderProgram = 0;
     }
 
-    // 4) Models 
+    // 4) Models
     teapot.~Model3D();
     new (&teapot) gps::Model3D();
 
