@@ -42,7 +42,6 @@ GLint lampEnabledLoc;
 bool lampEnabled = true;
 
 // shadow mapping
-// Higher resolution reduces blockiness/striping artifacts on the ground.
 const unsigned int SHADOW_WIDTH = 4096;
 const unsigned int SHADOW_HEIGHT = 4096;
 GLuint depthMapFBO = 0;
@@ -109,10 +108,6 @@ GLfloat angle;
 //animations
 bool spinWindmill = false;
 float windmillAngle = 0.0f;
-// Windmill blades pivot.
-// In this project the turbine's OBJ isn't perfectly centered at the hub, so a small
-// world-space pivot works best. This matches the previous "almost centered" behavior
-// and avoids the compounding transform issue.
 glm::vec3 windmillPivot = glm::vec3(-4.2f, 16.0f, 1.1f);
 
 // tavern sign swing (wind)
@@ -134,41 +129,25 @@ bool fogEnabled = true;
 gps::Shader myBasicShader;
 
 void AnimateWindmill() {
-    // Build the animated windmill transform from a clean base every frame.
-    // IMPORTANT: windmillPivot is in the turbine OBJ's local coordinates; because the
-    // base transform includes a small scale (0.025), this pivot is implicitly scaled too.
-    // This matches your original "almost centered" behavior while avoiding transform
-    // accumulation/drift.
     glm::mat4 base = model * windmillLocalTransform;
 
     windmillModel = glm::translate(base, windmillPivot);
     windmillModel = glm::rotate(
         windmillModel,
         glm::radians(windmillAngle),
-        glm::vec3(1.0f, 0.0f, 0.0f) // axis of blades
+        glm::vec3(1.0f, 0.0f, 0.0f)
     );
     windmillModel = glm::translate(windmillModel, -windmillPivot);
 }
 
 void AnimateBoardSwing(float tSeconds) {
-    // Swing the sign around its hinge/pivot.
-    // The Sign.obj mesh is not centered at origin; its top hinge in model space is roughly:
-    // (2.96306, 6.159437, 7.313268). This was extracted from the mesh bounds.
-    // Rotating around this pivot produces a much more believable "hanging board" animation.
 
-    // Base board transform (without swing)
     glm::mat4 base = model * boardLocalTransform;
-
-    // Swing angle: simple sinusoidal motion
     float swingDeg = sinf(tSeconds * 1.2f) * boardMaxSwingDeg;
-
-    // Pivot in SIGN MODEL space (before boardLocalTransform)
     const glm::vec3 pivotLocal(2.96306f, 6.159437f, 7.3132685f);
 
-    // Build: base * T(pivot) * R * T(-pivot)
     glm::mat4 swing(1.0f);
     swing = glm::translate(swing, pivotLocal);
-    // Rotate around local Z by default (change axis if you prefer another swing direction)
     swing = glm::rotate(swing, glm::radians(swingDeg), glm::vec3(0.0f, 0.0f, 1.0f));
     swing = glm::translate(swing, -pivotLocal);
 
@@ -176,8 +155,6 @@ void AnimateBoardSwing(float tSeconds) {
 }
 
 void CalculatePointLight() {
-    // lamp (point light) parameters
-    // use the cube's origin as lamp position (stable)
     lampPos = glm::vec3(cubeModel * glm::vec4(0, 0, 0, 1));
     lampColor = glm::vec3(2.0f, 0.85f, 0.6f);  // warm light
     myBasicShader.useShaderProgram();
@@ -242,7 +219,6 @@ GLenum glCheckError_(const char *file, int line)
 
 void windowResizeCallback(GLFWwindow* window, int width, int height) {
 	fprintf(stdout, "Window resized! New width: %d , and height: %d\n", width, height);
-	// On HiDPI displays the framebuffer size can differ from the window size.
 	int fbWidth = 0, fbHeight = 0;
 	glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
 	myWindow.setWindowDimensions({ fbWidth, fbHeight });
@@ -283,13 +259,11 @@ void keyboardCallback(GLFWwindow* window, int key, int scancode, int action, int
     }
 
     if (key == GLFW_KEY_I && action == GLFW_PRESS) {
-        // wind-related animations (windmill blades + hanging sign)
         spinWindmill = !spinWindmill;
         swingBoard = !swingBoard;
     }
 
     if (key == GLFW_KEY_Y && action == GLFW_PRESS) {
-        // simple rain overlay in shader
         rainEnabled = !rainEnabled;
     }
 
@@ -297,17 +271,14 @@ void keyboardCallback(GLFWwindow* window, int key, int scancode, int action, int
         fogEnabled = !fogEnabled;
     }
 
-    // SOLID
     if (key == GLFW_KEY_1 && action == GLFW_PRESS) {
         renderMode = 0;
     }
 
-    // WIREFRAME
     if (key == GLFW_KEY_2 && action == GLFW_PRESS) {
         renderMode = 1;
     }
 
-    // POINT / POLYGONAL
     if (key == GLFW_KEY_3 && action == GLFW_PRESS) {
         renderMode = 2;
     }
@@ -344,9 +315,10 @@ void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
         (float)myWindow.getWindowDimensions().width /
         (float)myWindow.getWindowDimensions().height,
         0.1f,
-        100.0f
+        200.0f
     );
 
+    myBasicShader.useShaderProgram();
     glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 }
 
@@ -369,39 +341,33 @@ void processMovement() {
     view = myCamera.getViewMatrix();
     myBasicShader.useShaderProgram();
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-    // normals are kept in world space (do NOT include view)
+    // normals are kept in world space (NOT for view)
     normalMatrix = glm::mat3(glm::inverseTranspose(model));
 
     if (pressedKeys[GLFW_KEY_Q]) {
         angle = 1.0f;
-        // update model matrix for teapot
         model = glm::rotate(model, glm::radians(angle), glm::vec3(0, 1, 0));
         MultiplyByReference();
         CalculatePointLight();
-        // update normal matrix for teapot
+        // update normal matrix for scene
         normalMatrix = glm::mat3(glm::inverseTranspose(model));
     }
 
     if (pressedKeys[GLFW_KEY_E]) {
         angle = -1.0f;
-        // update model matrix for teapot
         model = glm::rotate(model, glm::radians(angle), glm::vec3(0, 1, 0));
         MultiplyByReference();
         CalculatePointLight();
-        // update normal matrix for teapot
+        // update normal matrix for scene
         normalMatrix = glm::mat3(glm::inverseTranspose(model));
     }
 
     if (animateSun) {
-        // Animate from sunrise -> noon -> sunset with a stable horizon.
-        // We keep the sun above the horizon (lightDir.y >= 0), so the scene doesn't
-        // abruptly go dark and the shadow map stays well-behaved.
-        sunAngle += 0.35f;              // degrees per frame (tweak as you like)
-        if (sunAngle > 180.0f)          // one full day arc
+        sunAngle += 0.35f; 
+        if (sunAngle > 180.0f) 
             sunAngle -= 180.0f;
 
         float theta = glm::radians(sunAngle);
-        // lightDir is the direction FROM the fragment TOWARDS the sun (used directly in shader)
         lightDir = glm::normalize(glm::vec3(0.0f, sinf(theta), cosf(theta)));
 
         myBasicShader.useShaderProgram();
@@ -450,10 +416,10 @@ void initOpenGLState() {
 	glClearColor(0.7f, 0.7f, 0.7f, 1.0f);
 	glViewport(0, 0, myWindow.getWindowDimensions().width, myWindow.getWindowDimensions().height);
     glEnable(GL_FRAMEBUFFER_SRGB);
-	glEnable(GL_DEPTH_TEST); // enable depth-testing
+	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LESS); // depth-testing interprets a smaller value as "closer"
-	glEnable(GL_CULL_FACE); // cull face
-	glCullFace(GL_BACK); // cull back face
+	glEnable(GL_CULL_FACE); 
+	glCullFace(GL_BACK);
 	glFrontFace(GL_CCW); // GL_CCW for counter clock-wise
     glShadeModel(GL_SMOOTH);
 
@@ -497,7 +463,6 @@ void initShadowMap() {
 
 	glGenTextures(1, &depthMap);
 	glBindTexture(GL_TEXTURE_2D, depthMap);
-	// Use a 32-bit float depth format for better precision in large outdoor scenes.
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F,
 		SHADOW_WIDTH, SHADOW_HEIGHT, 0,
 		GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
@@ -517,7 +482,6 @@ void initShadowMap() {
 
 void initUniforms() {
 	myBasicShader.useShaderProgram();
-	// texture units
 	glUniform1i(glGetUniformLocation(myBasicShader.shaderProgram, "diffuseTexture"), 0);
 	// Reserve a high texture unit for the shadow map so model materials (which may bind
 	// multiple textures starting at unit 0) don't accidentally overwrite it.
@@ -572,7 +536,6 @@ void initUniforms() {
     glUniform1i(lampEnabledLoc, lampEnabled);
 
 	// set the sun direction (FROM the scene TOWARDS the sun)
-	// (shader uses thislghtDir directly, no negation)
     lightDir = glm::normalize(glm::vec3(0.0f, 0.7f, 0.7f));
 	lightDirLoc = glGetUniformLocation(myBasicShader.shaderProgram, "lightDir");
 	// send light dir to shader
@@ -618,10 +581,10 @@ void renderObjects(gps::Shader shader) {
     // select active shader program
     shader.useShaderProgram();
 
-    //send teapot model matrix data to shader
+    //send scene model matrix data to shader
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
-    //send teapot normal matrix data to shader
+    //send scene normal matrix data to shader
     glUniformMatrix3fv(normalMatrixLoc, 1, GL_FALSE, glm::value_ptr(normalMatrix));
 
     // draw Scene
@@ -629,24 +592,16 @@ void renderObjects(gps::Shader shader) {
 }
 
 void renderScene() {
-    // 1) Shadow pass: render depth from light POV
-    // NOTE: tuned for your MainScene.obj scale (village spans roughly +/-50 units)
-    // Keep the shadow frustum stable and independent from the camera.
+    // Shadow pass: render depth from light POV
     glm::mat4 lightProjection = glm::ortho(-70.0f, 70.0f, -70.0f, 70.0f, 1.0f, 150.0f);
     glm::vec3 sceneCenter(0.0f, 5.0f, 0.0f);
-    // lightDir points FROM the scene TOWARDS the sun, so the light "camera" position
-    // should be placed in that direction.
     glm::vec3 lightPos = sceneCenter + lightDir * 80.0f;
     glm::mat4 lightView = glm::lookAt(lightPos, sceneCenter, glm::vec3(0.0f, 1.0f, 0.0f));
     lightSpaceMatrix = lightProjection * lightView;
 
     glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
-	// Some imported meshes have inconsistent winding; keep culling disabled for the
-	// shadow pass to avoid the "empty shadow map" case.
 	glDisable(GL_CULL_FACE);
 
-	// Reduce shadow acne / banding on large flat surfaces by applying a polygon offset
-	// during the depth-only render.
 	glEnable(GL_POLYGON_OFFSET_FILL);
 	glPolygonOffset(2.0f, 4.0f);
     glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
@@ -673,7 +628,7 @@ void renderScene() {
 	glDisable(GL_POLYGON_OFFSET_FILL);
 	glEnable(GL_CULL_FACE);
 
-    // 2) Main pass
+    // Main pass
     glViewport(0, 0, myWindow.getWindowDimensions().width, myWindow.getWindowDimensions().height);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -702,8 +657,7 @@ void renderScene() {
         break;
     }
 ;
-
-	// render the teapot
+	// render the objects
 	renderObjects(myBasicShader);
     renderBasicObjects(myBasicShader);
     renderLampCube(myBasicShader);
@@ -726,7 +680,7 @@ void renderScene() {
         fogEnabled
     );
 
-    // draw skybox LAST
+    // draw skybox
     skyboxShader.useShaderProgram();
     glUniform1i(
         glGetUniformLocation(skyboxShader.shaderProgram, "skybox"),
@@ -745,9 +699,52 @@ void renderScene() {
 
 }
 
+
 void cleanup() {
+    // IMPORTANT: delete GPU resources *before* destroying the OpenGL context.
+
+    // 1) Shadow map resources
+    if (depthMapFBO != 0) {
+        glDeleteFramebuffers(1, &depthMapFBO);
+        depthMapFBO = 0;
+    }
+    if (depthMap != 0) {
+        glDeleteTextures(1, &depthMap);
+        depthMap = 0;
+    }
+
+    // 2) Skybox GPU buffers/texture
+    skybox.cleanup();
+
+    // 3) Shader programs
+    if (myBasicShader.shaderProgram) {
+        glDeleteProgram(myBasicShader.shaderProgram);
+        myBasicShader.shaderProgram = 0;
+    }
+    if (shadowShader.shaderProgram) {
+        glDeleteProgram(shadowShader.shaderProgram);
+        shadowShader.shaderProgram = 0;
+    }
+    if (skyboxShader.shaderProgram) {
+        glDeleteProgram(skyboxShader.shaderProgram);
+        skyboxShader.shaderProgram = 0;
+    }
+
+    // 4) Models 
+    teapot.~Model3D();
+    new (&teapot) gps::Model3D();
+
+    tavernBoard.~Model3D();
+    new (&tavernBoard) gps::Model3D();
+
+    windMill.~Model3D();
+    new (&windMill) gps::Model3D();
+
+    lampCube.~Model3D();
+    new (&lampCube) gps::Model3D();
+
+    // 5) Destroy window and terminate GLFW (destroys GL context)
     myWindow.Delete();
-    //cleanup code for your own data
 }
 
 int main(int argc, const char * argv[]) {

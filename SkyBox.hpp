@@ -10,6 +10,7 @@ public:
     void init(); 
     void Load(std::vector<std::string> faces);
     void Draw(gps::Shader& shader);
+    void cleanup();
 
 private:
     GLuint skyboxVAO = 0;

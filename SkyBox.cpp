@@ -120,3 +120,19 @@ void SkyBox::Draw(gps::Shader& shader)
     glDepthFunc(GL_LESS);
 }
 
+void SkyBox::cleanup()
+{
+    if (skyboxVBO != 0) {
+        glDeleteBuffers(1, &skyboxVBO);
+        skyboxVBO = 0;
+    }
+    if (skyboxVAO != 0) {
+        glDeleteVertexArrays(1, &skyboxVAO);
+        skyboxVAO = 0;
+    }
+    if (cubemapTexture != 0) {
+        glDeleteTextures(1, &cubemapTexture);
+        cubemapTexture = 0;
+    }
+}
+
